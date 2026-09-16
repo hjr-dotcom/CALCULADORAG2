@@ -8,7 +8,7 @@ import TabelaOrcamento from '@/components/TabelaOrcamento';
 
 export default function CadPage() {
   const { prices, isLoaded } = usePrices();
-  const [activeTool, setActiveTool] = useState<'line' | 'select' | 'pan' | 'calibrate'>('line');
+  const [activeTool, setActiveTool] = useState<'line' | 'select' | 'delete' | 'pan' | 'calibrate'>('line');
   const [ortho, setOrtho] = useState(false);
   const [rebaixo, setRebaixo] = useState(0.30);
   const [usarLa, setUsarLa] = useState(false);
@@ -48,7 +48,7 @@ export default function CadPage() {
     else if (tipo === 'forro_drywall') setTipoForro('drywall');
   }, []);
 
-  const [geomData, setGeomData] = useState<{ perimetro: number; areaEst: number; modPoints: any[]; boundW: number; boundH: number } | null>(null);
+  const [geomData, setGeomData] = useState<{ perimetro: number; areaEst: number; areaPoligono: number; modPoints: any[]; boundW: number; boundH: number } | null>(null);
   const [orcamento, setOrcamento] = useState<any[]>([]);
 
   const cadCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -333,6 +333,12 @@ export default function CadPage() {
                 🖱️ Selecionar
               </button>
               <button
+                onClick={() => setActiveTool('delete')}
+                className={`p-2 text-sm font-medium border rounded transition ${activeTool === 'delete' ? 'bg-red-600 text-white border-red-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+              >
+                🗑️ Apagar Linha
+              </button>
+              <button
                 onClick={() => setActiveTool('pan')}
                 className={`p-2 text-sm font-medium border rounded transition ${activeTool === 'pan' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
               >
@@ -373,6 +379,17 @@ export default function CadPage() {
                 <span>📐 Travar Ângulo Ortogonal (90°)</span>
               </label>
             </div>
+
+            {geomData && geomData.areaPoligono > 0 && (
+              <div className="mt-3 flex gap-2 text-sm">
+                <span className="flex-1 bg-yellow-50 border border-yellow-200 text-yellow-800 font-semibold rounded p-2 text-center">
+                  📐 Área: {geomData.areaPoligono.toFixed(2)} m²
+                </span>
+                <span className="flex-1 bg-slate-50 border border-slate-200 text-slate-700 font-semibold rounded p-2 text-center">
+                  📏 Perímetro: {geomData.perimetro.toFixed(2)} m
+                </span>
+              </div>
+            )}
           </div>
 
           <div>

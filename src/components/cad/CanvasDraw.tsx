@@ -12,15 +12,16 @@ export interface CanvasDrawHandle {
 }
 
 interface CanvasDrawProps {
-  // 'line' desenha paredes; 'select' seleciona; 'pan' arrasta a câmera;
-  // 'calibrate' mede uma linha sobre a imagem de fundo e pede o tamanho real.
-  tool: 'line' | 'select' | 'pan' | 'calibrate' | string;
+  // 'line' desenha paredes; 'select' seleciona; 'delete' apaga uma linha por
+  // clique; 'pan' arrasta a câmera; 'calibrate' mede uma linha sobre a imagem
+  // de fundo e pede o tamanho real.
+  tool: 'line' | 'select' | 'delete' | 'pan' | 'calibrate' | string;
   orthoEnabled: boolean;
-  onUpdateGeometry: (linesData: any[], modData: { modLines: any[]; modPoints: any[]; perimetro: number; areaEst: number; boundW: number; boundH: number }) => void;
+  onUpdateGeometry: (linesData: any[], modData: { modLines: any[]; modPoints: any[]; perimetro: number; areaEst: number; areaPoligono: number; boundW: number; boundH: number }) => void;
   canvasRefProp?: React.RefObject<HTMLCanvasElement | null>;
   // 'drywall' desenha a modulação F530 (padrão); 'modular' desenha uma grade
   // esquemática de forro modular (perfil principal a cada 1,25m e travessas a
-  // cada 0,625m) dentro do retângulo envolvente do desenho.
+  // cada 0,625m), recortada nos limites reais do desenho (cantoneira/parede).
   gridMode?: 'drywall' | 'modular';
 }
 
@@ -35,12 +36,15 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
   const [lines, setLines] = useState<any[]>([]);
   const [modLines, setModLines] = useState<any[]>([]);
   const [modPoints, setModPoints] = useState<any[]>([]);
+  const [modularGridSegs, setModularGridSegs] = useState<any[]>([]);
   const [modBounds, setModBounds] = useState<{ minX: number; maxX: number; minY: number; maxY: number } | null>(null);
+  const [areaPoligono, setAreaPoligono] = useState(0);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startX, setStartX] = useState(0);
   const [startY, setStartY] = useState(0);
   const [currentX, setCurrentX] = useState(0);
   const [currentY, setCurrentY] = useState(0);
+  const [hoverDeleteIdx, setHoverDeleteIdx] = useState<number | null>(null);
 
   // Imagem de fundo (decalque) e calibração de escala
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
@@ -100,20 +104,15 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
     ctx.beginPath(); ctx.moveTo(org.x - 10, org.y); ctx.lineTo(org.x + 10, org.y); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(org.x, org.y - 10); ctx.lineTo(org.x, org.y + 10); ctx.stroke();
 
-    if (gridMode === 'modular' && modBounds) {
-      // Grade esquemática do forro modular: travessas a cada 0,625m e
-      // perfil principal a cada 1,25m, dentro do retângulo envolvente do desenho.
-      const { minX, maxX, minY, maxY } = modBounds;
-      ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1;
-      for (let x = minX; x <= maxX + 0.001; x += 0.625) {
-        let p1 = w2s(x, minY), p2 = w2s(x, maxY);
+    if (gridMode === 'modular') {
+      // Grade esquemática do forro modular, já recortada nos limites reais do
+      // desenho (não ultrapassa a linha da cantoneira/parede).
+      modularGridSegs.forEach(seg => {
+        let p1 = w2s(seg.x1, seg.y1), p2 = w2s(seg.x2, seg.y2);
+        ctx.strokeStyle = seg.kind === 'principal' ? '#f59e0b' : '#3b82f6';
+        ctx.lineWidth = seg.kind === 'principal' ? 2 : 1;
         ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-      }
-      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
-      for (let y = minY; y <= maxY + 0.001; y += 1.25) {
-        let p1 = w2s(minX, y), p2 = w2s(maxX, y);
-        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-      }
+      });
     } else {
       // Linhas de modulação (F530)
       ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5;
@@ -132,9 +131,10 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
 
     // Paredes desenhadas
     ctx.lineWidth = 2.5;
-    lines.forEach(l => {
+    lines.forEach((l, idx) => {
       let p1 = w2s(l.x1, l.y1), p2 = w2s(l.x2, l.y2);
-      ctx.strokeStyle = l.selected ? '#eab308' : '#ef4444';
+      ctx.strokeStyle = idx === hoverDeleteIdx ? '#f97316' : l.selected ? '#eab308' : '#ef4444';
+      ctx.lineWidth = idx === hoverDeleteIdx ? 4 : 2.5;
       ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
       ctx.fillStyle = 'white';
       ctx.fillRect(p1.x - 3, p1.y - 3, 6, 6);
@@ -151,7 +151,17 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
       const label = tool === 'calibrate' ? 'Definir escala...' : Math.hypot(currentX - startX, currentY - startY).toFixed(2) + 'm';
       ctx.fillText(label, p2.x + 12, p2.y - 12);
     }
-  }, [lines, modLines, modPoints, modBounds, gridMode, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef, bgImage, bgScale, bgOffset, bgOpacity]);
+
+    // Área do polígono desenhado (estilo comando AREA do AutoCAD)
+    if (areaPoligono > 0 && modBounds) {
+      const centro = w2s((modBounds.minX + modBounds.maxX) / 2, (modBounds.minY + modBounds.maxY) / 2);
+      ctx.fillStyle = '#facc15';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Área: ${areaPoligono.toFixed(2)} m²`, centro.x, centro.y);
+      ctx.textAlign = 'left';
+    }
+  }, [lines, modLines, modPoints, modularGridSegs, modBounds, areaPoligono, gridMode, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef, bgImage, bgScale, bgOffset, bgOpacity, hoverDeleteIdx]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -189,6 +199,15 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
     return closest || { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 };
   };
 
+  const findNearestLine = (wPos: { x: number; y: number }) => {
+    let minDist = 12 / zoomRef.current, idx = -1;
+    lines.forEach((l, i) => {
+      const d = distToSeg(wPos, { x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 });
+      if (d < minDist) { minDist = d; idx = i; }
+    });
+    return idx;
+  };
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = activeCanvasRef.current;
     if (!canvas) return;
@@ -203,6 +222,12 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
       panStateRef.current.lastX = e.clientX;
       panStateRef.current.lastY = e.clientY;
       render();
+      return;
+    }
+
+    if (tool === 'delete') {
+      const idx = findNearestLine(s2w(mx, my));
+      setHoverDeleteIdx(idx === -1 ? null : idx);
       return;
     }
 
@@ -245,6 +270,11 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
     setBgOffset({ x: newOffsetX, y: newOffsetY });
   };
 
+  const pushHistory = () => {
+    historyRef.current.push(lines);
+    if (historyRef.current.length > 30) historyRef.current.shift();
+  };
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = activeCanvasRef.current;
     if (!canvas) return;
@@ -255,6 +285,19 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
     }
 
     const rect = canvas.getBoundingClientRect();
+
+    if (tool === 'delete') {
+      const idx = findNearestLine(s2w(e.clientX - rect.left, e.clientY - rect.top));
+      if (idx !== -1) {
+        pushHistory();
+        const updatedLines = lines.filter((_, i) => i !== idx);
+        setLines(updatedLines);
+        setHoverDeleteIdx(null);
+        calcularModulacao(updatedLines);
+      }
+      return;
+    }
+
     let snap = getSnap(s2w(e.clientX - rect.left, e.clientY - rect.top));
 
     if (tool === 'line' || tool === 'calibrate') {
@@ -273,8 +316,7 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
         }
         if (Math.hypot(startX - fX, startY - fY) > 0.05) {
           if (tool === 'line') {
-            historyRef.current.push(lines);
-            if (historyRef.current.length > 30) historyRef.current.shift();
+            pushHistory();
             const updatedLines = [...lines, { x1: startX, y1: startY, x2: fX, y2: fY, selected: false }];
             setLines(updatedLines);
             calcularModulacao(updatedLines);
@@ -312,12 +354,58 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
     return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
   };
 
+  // Vãos (trechos) internos ao polígono ao longo de uma linha horizontal em y,
+  // obtidos cruzando um raio com todas as arestas (regra par-ímpar).
+  const scanRowSpans = (currentLines: any[], y: number): [number, number][] => {
+    let hits: number[] = [];
+    currentLines.forEach(l => {
+      if ((l.y1 <= y && l.y2 > y) || (l.y2 <= y && l.y1 > y)) {
+        hits.push(l.x1 + (y - l.y1) * (l.x2 - l.x1) / (l.y2 - l.y1));
+      }
+    });
+    hits.sort((a, b) => a - b);
+    const spans: [number, number][] = [];
+    for (let i = 0; i < hits.length - 1; i += 2) spans.push([hits[i], hits[i + 1]]);
+    return spans;
+  };
+
+  // Mesma ideia, com um raio vertical em x (para recortar as travessas verticais).
+  const scanColSpans = (currentLines: any[], x: number): [number, number][] => {
+    let hits: number[] = [];
+    currentLines.forEach(l => {
+      if ((l.x1 <= x && l.x2 > x) || (l.x2 <= x && l.x1 > x)) {
+        hits.push(l.y1 + (x - l.x1) * (l.y2 - l.y1) / (l.x2 - l.x1));
+      }
+    });
+    hits.sort((a, b) => a - b);
+    const spans: [number, number][] = [];
+    for (let i = 0; i < hits.length - 1; i += 2) spans.push([hits[i], hits[i + 1]]);
+    return spans;
+  };
+
+  // Área do polígono fechado pelas paredes desenhadas (fórmula do shoelace),
+  // igual ao comando AREA do AutoCAD: soma das arestas na ordem em que foram
+  // desenhadas (a ferramenta de linha sempre encadeia uma na outra) e fecha
+  // implicitamente do último ponto de volta ao primeiro, se ainda não fechado.
+  const calcAreaPoligono = (currentLines: any[]): number => {
+    if (currentLines.length < 3) return 0;
+    let sum = 0;
+    currentLines.forEach(l => { sum += (l.x1 * l.y2 - l.x2 * l.y1); });
+    const first = currentLines[0], last = currentLines[currentLines.length - 1];
+    if (first.x1 !== last.x2 || first.y1 !== last.y2) {
+      sum += (last.x2 * first.y1 - first.x1 * last.y2);
+    }
+    return Math.abs(sum) / 2;
+  };
+
   const calcularModulacao = (currentLines: any[]) => {
     if (currentLines.length < 3) {
       setModLines([]);
       setModPoints([]);
+      setModularGridSegs([]);
       setModBounds(null);
-      onUpdateGeometry(currentLines, { modLines: [], modPoints: [], perimetro: 0, areaEst: 0, boundW: 0, boundH: 0 });
+      setAreaPoligono(0);
+      onUpdateGeometry(currentLines, { modLines: [], modPoints: [], perimetro: 0, areaEst: 0, areaPoligono: 0, boundW: 0, boundH: 0 });
       return;
     }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -334,29 +422,42 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
     let linearF530 = 0;
 
     for (let y = minY + 0.6; y < maxY; y += 0.6) {
-      let rayHits: number[] = [];
-      currentLines.forEach(l => {
-        if ((l.y1 <= y && l.y2 > y) || (l.y2 <= y && l.y1 > y)) {
-          rayHits.push(l.x1 + (y - l.y1) * (l.x2 - l.x1) / (l.y2 - l.y1));
+      const spans = scanRowSpans(currentLines, y);
+      spans.forEach(([xA, xB]) => {
+        mLines.push({ x1: xA, y1: y, x2: xB, y2: y });
+        linearF530 += (xB - xA);
+        for (let p = 1; p < (xB - xA); p += 1.0) {
+          mPoints.push({ x: xA + p, y });
         }
       });
-      rayHits.sort((a, b) => a - b);
-      for (let i = 0; i < rayHits.length - 1; i += 2) {
-        mLines.push({ x1: rayHits[i], y1: y, x2: rayHits[i + 1], y2: y });
-        linearF530 += (rayHits[i + 1] - rayHits[i]);
-        for (let p = 1; p < (rayHits[i + 1] - rayHits[i]); p += 1.0) {
-          mPoints.push({ x: rayHits[i] + p, y: y });
-        }
-      }
     }
+
+    // Grade do forro modular recortada nos limites reais do ambiente (não
+    // ultrapassa a linha da cantoneira/parede, diferente do retângulo envolvente).
+    let gridSegs: any[] = [];
+    const passoTravessa = 0.625;
+    const passoPrincipal = 1.25;
+    for (let x = minX + 1e-4; x <= maxX - 1e-4; x += passoTravessa) {
+      scanColSpans(currentLines, x).forEach(([yA, yB]) => {
+        gridSegs.push({ x1: x, y1: yA, x2: x, y2: yB, kind: 'travessa' });
+      });
+    }
+    for (let y = minY + 1e-4; y <= maxY - 1e-4; y += passoPrincipal) {
+      scanRowSpans(currentLines, y).forEach(([xA, xB]) => {
+        gridSegs.push({ x1: xA, y1: y, x2: xB, y2: y, kind: 'principal' });
+      });
+    }
+    setModularGridSegs(gridSegs);
 
     let perimetro = 0;
     currentLines.forEach(l => perimetro += Math.hypot(l.x2 - l.x1, l.y2 - l.y1));
     let areaEst = linearF530 * 0.6;
+    const areaReal = calcAreaPoligono(currentLines);
+    setAreaPoligono(areaReal);
 
     setModLines(mLines);
     setModPoints(mPoints);
-    onUpdateGeometry(currentLines, { modLines: mLines, modPoints: mPoints, perimetro, areaEst, boundW: maxX - minX, boundH: maxY - minY });
+    onUpdateGeometry(currentLines, { modLines: mLines, modPoints: mPoints, perimetro, areaEst, areaPoligono: areaReal, boundW: maxX - minX, boundH: maxY - minY });
   };
 
   const zoomAtCenter = (factor: number) => {
@@ -429,7 +530,7 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
         onMouseLeave={handleMouseUp}
         onContextMenu={(e) => { e.preventDefault(); setIsDrawing(false); }}
         onWheel={handleWheel}
-        className={`w-full h-full block ${tool === 'pan' ? 'cursor-grab' : 'cursor-crosshair'}`}
+        className={`w-full h-full block ${tool === 'pan' ? 'cursor-grab' : tool === 'delete' ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
       />
     </div>
   );
