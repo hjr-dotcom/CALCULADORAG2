@@ -23,10 +23,13 @@ interface CanvasDrawProps {
   // esquemática de forro modular (perfil principal a cada 1,25m e travessas a
   // cada 0,625m), recortada nos limites reais do desenho (cantoneira/parede).
   gridMode?: 'drywall' | 'modular';
+  // Formato da placa modular: '62x62' adiciona a travessa extra no meio de
+  // cada vão de 1,25m (chapa cortada ao meio).
+  formatoModular?: '125x62' | '62x62';
 }
 
 const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function CanvasDraw(
-  { tool, orthoEnabled, onUpdateGeometry, canvasRefProp, gridMode = 'drywall' },
+  { tool, orthoEnabled, onUpdateGeometry, canvasRefProp, gridMode = 'drywall', formatoModular = '125x62' },
   ref
 ) {
   const localCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -186,6 +189,13 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
   useEffect(() => {
     render();
   }, [render]);
+
+  // Recalcula a grade (inclui/remove a travessa extra do formato 62x62) quando
+  // o formato ou o tipo de forro muda, sem precisar redesenhar as paredes.
+  useEffect(() => {
+    calcularModulacao(lines);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatoModular, gridMode]);
 
   const getSnap = (p: { x: number; y: number }) => {
     let closest: { x: number; y: number } | null = null;
@@ -446,6 +456,15 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
       scanRowSpans(currentLines, y).forEach(([xA, xB]) => {
         gridSegs.push({ x1: xA, y1: y, x2: xB, y2: y, kind: 'principal' });
       });
+    }
+    // Formato 62x62: a chapa 1,25x0,625 é cortada ao meio, então entra uma
+    // travessa 0,625 extra bem no meio de cada vão de 1,25m entre perfis principais.
+    if (formatoModular === '62x62') {
+      for (let y = minY + 1e-4 + passoTravessa; y <= maxY - 1e-4; y += passoPrincipal) {
+        scanRowSpans(currentLines, y).forEach(([xA, xB]) => {
+          gridSegs.push({ x1: xA, y1: y, x2: xB, y2: y, kind: 'travessa' });
+        });
+      }
     }
     setModularGridSegs(gridSegs);
 

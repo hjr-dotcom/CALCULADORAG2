@@ -50,6 +50,7 @@ export default function CadPage() {
 
   const [geomData, setGeomData] = useState<{ perimetro: number; areaEst: number; areaPoligono: number; modPoints: any[]; boundW: number; boundH: number } | null>(null);
   const [orcamento, setOrcamento] = useState<any[]>([]);
+  const [comparativoModular, setComparativoModular] = useState<{ key: string; nome: string; totalPix: number; totalCred: number }[]>([]);
 
   const cadCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -75,6 +76,9 @@ export default function CadPage() {
 
     const { perimetro, areaEst, modPoints, boundW, boundH } = geomData;
     let novoOrcamento: any[] = [];
+    let placaItemModular: any = null;
+    let matModular: ReturnType<typeof calcularForroModular> | null = null;
+    let fatorCorteModular = 1;
 
     if (tipoForro === 'drywall') {
       const qtdPlacas = Math.ceil(areaEst / 2.16);
@@ -103,9 +107,13 @@ export default function CadPage() {
       const mat = calcularForroModular(boundW, boundH, formatoModular, rebaixo);
       const placaMat = prices[materialModular];
       const fatorCorte = formatoModular === '62x62' ? 0.5 : 1;
+      matModular = mat;
+      fatorCorteModular = fatorCorte;
+
+      placaItemModular = { nome: `${placaMat.nome}${formatoModular === '62x62' ? ' (cortada 0,625x0,625m)' : ''}`, qtd: mat.placas, un: 'un', pPix: placaMat.pix * fatorCorte, pCred: placaMat.cred * fatorCorte };
 
       novoOrcamento = [
-        { nome: `${placaMat.nome}${formatoModular === '62x62' ? ' (cortada 0,625x0,625m)' : ''}`, qtd: mat.placas, un: 'un', pPix: placaMat.pix * fatorCorte, pCred: placaMat.cred * fatorCorte },
+        placaItemModular,
         { nome: prices.perfil_principal_3125.nome, qtd: mat.perfilPrincipal, un: 'un', pPix: prices.perfil_principal_3125.pix, pCred: prices.perfil_principal_3125.cred },
         { nome: prices.perfil_secundario_0625.nome, qtd: mat.perfilSecundario, un: 'un', pPix: prices.perfil_secundario_0625.pix, pCred: prices.perfil_secundario_0625.cred },
         { nome: prices.perfil_travessa_625.nome, qtd: mat.travessa625, un: 'un', pPix: prices.perfil_travessa_625.pix, pCred: prices.perfil_travessa_625.cred },
@@ -123,6 +131,24 @@ export default function CadPage() {
     }
 
     setOrcamento(novoOrcamento);
+
+    if (tipoForro === 'modular' && matModular && placaItemModular) {
+      const estruturaPix = novoOrcamento.filter(i => i !== placaItemModular).reduce((acc, i) => acc + i.qtd * i.pPix, 0);
+      const estruturaCred = novoOrcamento.filter(i => i !== placaItemModular).reduce((acc, i) => acc + i.qtd * i.pCred, 0);
+      const placas = matModular.placas;
+      const comparativo = MODULAR_PLACA_KEYS.map(key => {
+        const m = prices[key];
+        return {
+          key,
+          nome: m.nome,
+          totalPix: estruturaPix + placas * m.pix * fatorCorteModular,
+          totalCred: estruturaCred + placas * m.cred * fatorCorteModular
+        };
+      });
+      setComparativoModular(comparativo);
+    } else {
+      setComparativoModular([]);
+    }
   };
 
   const exportarOrcamento = (tipo: 'PIX' | 'CREDITO', incluirDesenho: boolean, nomeCliente: string, telefoneCliente: string) => {
@@ -311,6 +337,7 @@ export default function CadPage() {
           onUpdateGeometry={handleUpdateGeometry}
           canvasRefProp={cadCanvasRef}
           gridMode={tipoForro === 'modular' ? 'modular' : 'drywall'}
+          formatoModular={formatoModular}
         />
       </div>
 
@@ -504,6 +531,32 @@ export default function CadPage() {
             <div>
               <h2 className="text-lg font-bold text-slate-900 border-b pb-2">Orçamento Detalhado (CAD)</h2>
               <TabelaOrcamento orcamento={orcamento} onExport={exportarOrcamento} />
+            </div>
+          )}
+
+          {comparativoModular.length > 0 && (
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 border-b pb-2">Comparativo de Valor por Tipo de Placa</h2>
+              <div className="overflow-x-auto mt-3">
+                <table className="w-full border-collapse border border-slate-200 text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="border px-3 py-2 text-left text-xs font-semibold">Material</th>
+                      <th className="border px-3 py-2 text-right text-xs font-semibold">Total PIX (R$)</th>
+                      <th className="border px-3 py-2 text-right text-xs font-semibold">Total Crédito (R$)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {comparativoModular.map(c => (
+                      <tr key={c.key} className={c.key === materialModular ? 'bg-blue-50' : 'bg-white'}>
+                        <td className="border px-3 py-1.5 font-medium">{c.nome}{c.key === materialModular ? ' (selecionado)' : ''}</td>
+                        <td className="border px-3 py-1.5 text-right">{formataMoeda(c.totalPix)}</td>
+                        <td className="border px-3 py-1.5 text-right">{formataMoeda(c.totalCred)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

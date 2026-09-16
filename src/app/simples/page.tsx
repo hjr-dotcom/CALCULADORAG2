@@ -28,6 +28,7 @@ export default function ModoSimples() {
   const [usarIso, setUsarIso] = useState(false);
   
   const [orcamento, setOrcamento] = useState<any[]>([]);
+  const [comparativoModular, setComparativoModular] = useState<{ key: string; nome: string; totalPix: number; totalCred: number }[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const calcular = () => {
@@ -39,6 +40,9 @@ export default function ModoSimples() {
     const area = L * C;
     const perimetro = 2 * (L + C);
     let novoOrcamento: any[] = [];
+    let placaItemModular: any = null;
+    let matModular: ReturnType<typeof calcularForroModular> | null = null;
+    let fatorCorteModular = 1;
 
     if (tipoEstrutura === 'forro_drywall') {
         const qtdPlacas = Math.ceil(area / 2.16);
@@ -85,9 +89,13 @@ export default function ModoSimples() {
         // 62x62 cada chapa é cortada ao meio, então o preço por peça instalada é a metade.
         const placaMat = prices[materialModular];
         const fatorCorte = formatoModular === '62x62' ? 0.5 : 1;
+        matModular = mat;
+        fatorCorteModular = fatorCorte;
+
+        placaItemModular = { nome: `${placaMat.nome}${formatoModular === '62x62' ? ' (cortada 0,625x0,625m)' : ''}`, qtd: mat.placas, un: 'un', pPix: placaMat.pix * fatorCorte, pCred: placaMat.cred * fatorCorte };
 
         novoOrcamento = [
-            { nome: `${placaMat.nome}${formatoModular === '62x62' ? ' (cortada 0,625x0,625m)' : ''}`, qtd: mat.placas, un: 'un', pPix: placaMat.pix * fatorCorte, pCred: placaMat.cred * fatorCorte },
+            placaItemModular,
             { nome: prices.perfil_principal_3125.nome, qtd: mat.perfilPrincipal, un: 'un', pPix: prices.perfil_principal_3125.pix, pCred: prices.perfil_principal_3125.cred },
             { nome: prices.perfil_secundario_0625.nome, qtd: mat.perfilSecundario, un: 'un', pPix: prices.perfil_secundario_0625.pix, pCred: prices.perfil_secundario_0625.cred },
             { nome: prices.perfil_travessa_625.nome, qtd: mat.travessa625, un: 'un', pPix: prices.perfil_travessa_625.pix, pCred: prices.perfil_travessa_625.cred },
@@ -106,6 +114,24 @@ export default function ModoSimples() {
     }
 
     setOrcamento(novoOrcamento);
+
+    if (tipoEstrutura === 'forro_modular' && matModular && placaItemModular) {
+        const estruturaPix = novoOrcamento.filter(i => i !== placaItemModular).reduce((acc, i) => acc + i.qtd * i.pPix, 0);
+        const estruturaCred = novoOrcamento.filter(i => i !== placaItemModular).reduce((acc, i) => acc + i.qtd * i.pCred, 0);
+        const placas = matModular.placas;
+        const comparativo = MODULAR_PLACA_KEYS.map(key => {
+            const m = prices[key];
+            return {
+                key,
+                nome: m.nome,
+                totalPix: estruturaPix + placas * m.pix * fatorCorteModular,
+                totalCred: estruturaCred + placas * m.cred * fatorCorteModular
+            };
+        });
+        setComparativoModular(comparativo);
+    } else {
+        setComparativoModular([]);
+    }
   };
 
   const limparDesenho = () => {
@@ -132,9 +158,8 @@ export default function ModoSimples() {
     ctx.fillStyle = '#f1f5f9'; ctx.fillRect(oxS, oyS, sl, sc);
     ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 3; ctx.strokeRect(oxS, oyS, sl, sc);
 
-    const passoTravessa = formato === '62x62' ? 0.3125 : 0.625;
     ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1;
-    for (let x = passoTravessa; x < L; x += passoTravessa) {
+    for (let x = 0.625; x < L; x += 0.625) {
         let px = oxS + x * scale;
         ctx.beginPath(); ctx.moveTo(px, oyS); ctx.lineTo(px, oyS + sc); ctx.stroke();
     }
@@ -143,6 +168,16 @@ export default function ModoSimples() {
     for (let y = 1.25; y < C; y += 1.25) {
         let py = oyS + y * scale;
         ctx.beginPath(); ctx.moveTo(oxS, py); ctx.lineTo(oxS + sl, py); ctx.stroke();
+    }
+
+    // Formato 62x62: chapa cortada ao meio, entra uma travessa 0,625 extra
+    // exatamente no meio de cada vão de 1,25m entre perfis principais.
+    if (formato === '62x62') {
+        ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1;
+        for (let y = 0.625; y < C; y += 1.25) {
+            let py = oyS + y * scale;
+            ctx.beginPath(); ctx.moveTo(oxS, py); ctx.lineTo(oxS + sl, py); ctx.stroke();
+        }
     }
   };
 
@@ -371,7 +406,33 @@ export default function ModoSimples() {
 
           <div className="md:col-span-2 space-y-6">
             <TabelaOrcamento orcamento={orcamento} onExport={exportarOrcamento} />
-            
+
+            {comparativoModular.length > 0 && (
+                <div>
+                    <p className="text-sm font-bold text-slate-700 mb-2">Comparativo de Valor por Tipo de Placa:</p>
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse border border-slate-200 text-sm">
+                            <thead className="bg-slate-50">
+                                <tr>
+                                    <th className="border px-3 py-2 text-left text-xs font-semibold">Material</th>
+                                    <th className="border px-3 py-2 text-right text-xs font-semibold">Total PIX (R$)</th>
+                                    <th className="border px-3 py-2 text-right text-xs font-semibold">Total Crédito (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200">
+                                {comparativoModular.map(c => (
+                                    <tr key={c.key} className={c.key === materialModular ? 'bg-blue-50' : 'bg-white'}>
+                                        <td className="border px-3 py-1.5 font-medium">{c.nome}{c.key === materialModular ? ' (selecionado)' : ''}</td>
+                                        <td className="border px-3 py-1.5 text-right">{formataMoeda(c.totalPix)}</td>
+                                        <td className="border px-3 py-1.5 text-right">{formataMoeda(c.totalCred)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
             <div className="mt-6">
                 <p className="text-sm font-bold text-slate-700 mb-2">Representação Gráfica:</p>
                 <canvas ref={canvasRef} width={500} height={260} className="bg-slate-50 border border-slate-200 rounded-lg w-full max-w-[500px]"></canvas>
