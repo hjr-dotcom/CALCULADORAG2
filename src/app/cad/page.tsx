@@ -1,18 +1,41 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, ChangeEvent } from 'react';
 import { usePrices } from '@/hooks/usePrices';
 import { calcFixacao, formataMoeda, calcularForroModular } from '@/lib/utils';
 import { MODULAR_PLACA_KEYS } from '@/lib/defaultPrices';
-import CanvasDraw from '@/components/cad/CanvasDraw';
+import CanvasDraw, { CanvasDrawHandle } from '@/components/cad/CanvasDraw';
 import TabelaOrcamento from '@/components/TabelaOrcamento';
 
 export default function CadPage() {
   const { prices, isLoaded } = usePrices();
-  const [activeTool, setActiveTool] = useState('line');
+  const [activeTool, setActiveTool] = useState<'line' | 'select' | 'pan' | 'calibrate'>('line');
   const [ortho, setOrtho] = useState(false);
   const [rebaixo, setRebaixo] = useState(0.30);
   const [usarLa, setUsarLa] = useState(false);
   const [usarIso, setUsarIso] = useState(false);
+
+  const [temImagemFundo, setTemImagemFundo] = useState(false);
+  const [opacidadeFundo, setOpacidadeFundo] = useState(0.4);
+  const canvasDrawRef = useRef<CanvasDrawHandle>(null);
+
+  const handleBgFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    canvasDrawRef.current?.setBackgroundImage(file);
+    setTemImagemFundo(true);
+    e.target.value = '';
+  };
+
+  const handleRemoveBg = () => {
+    canvasDrawRef.current?.clearBackgroundImage();
+    setTemImagemFundo(false);
+    if (activeTool === 'calibrate') setActiveTool('line');
+  };
+
+  const handleBgOpacityChange = (v: number) => {
+    setOpacidadeFundo(v);
+    canvasDrawRef.current?.setBackgroundOpacity(v);
+  };
 
   const [tipoForro, setTipoForro] = useState<'drywall' | 'modular'>('drywall');
   const [formatoModular, setFormatoModular] = useState<'125x62' | '62x62'>('125x62');
@@ -33,6 +56,17 @@ export default function CadPage() {
   const handleUpdateGeometry = (_lines: any[], data: any) => {
     setGeomData(data);
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        canvasDrawRef.current?.undo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const gerarOrcamentoCAD = () => {
     if (!geomData || (tipoForro === 'drywall' && geomData.modPoints.length === 0) || (tipoForro === 'modular' && geomData.boundW <= 0)) {
@@ -270,6 +304,7 @@ export default function CadPage() {
       {/* 50% Esquerda - Canvas CAD Interativo */}
       <div className="w-1/2 h-full border-r border-slate-300">
         <CanvasDraw
+          ref={canvasDrawRef}
           tool={activeTool}
           orthoEnabled={ortho}
           onUpdateGeometry={handleUpdateGeometry}
@@ -296,13 +331,83 @@ export default function CadPage() {
               >
                 🖱️ Selecionar
               </button>
+              <button
+                onClick={() => setActiveTool('pan')}
+                className={`p-2 text-sm font-medium border rounded transition ${activeTool === 'pan' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+              >
+                🖐️ Mover Câmera (Pan)
+              </button>
+              <button
+                onClick={() => canvasDrawRef.current?.undo()}
+                className="p-2 text-sm font-medium border rounded transition bg-slate-50 text-slate-700 hover:bg-slate-100"
+              >
+                ↩️ Desfazer (Ctrl+Z)
+              </button>
             </div>
-            
+
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              <button
+                onClick={() => canvasDrawRef.current?.zoomIn()}
+                className="p-2 text-sm font-medium border rounded transition bg-slate-50 text-slate-700 hover:bg-slate-100 text-center"
+              >
+                🔍+ Zoom
+              </button>
+              <button
+                onClick={() => canvasDrawRef.current?.zoomOut()}
+                className="p-2 text-sm font-medium border rounded transition bg-slate-50 text-slate-700 hover:bg-slate-100 text-center"
+              >
+                🔍- Zoom
+              </button>
+              <button
+                onClick={() => canvasDrawRef.current?.resetView()}
+                className="p-2 text-sm font-medium border rounded transition bg-slate-50 text-slate-700 hover:bg-slate-100 text-center"
+              >
+                🎯 Centralizar
+              </button>
+            </div>
+
             <div className="mt-3">
               <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer bg-slate-50 p-2 rounded border border-slate-200">
                 <input type="checkbox" checked={ortho} onChange={(e) => setOrtho(e.target.checked)} className="rounded text-blue-600" />
                 <span>📐 Travar Ângulo Ortogonal (90°)</span>
               </label>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 border-b pb-2">Decalque (Imagem de Fundo)</h2>
+            <div className="mt-3 space-y-2">
+              <input
+                type="file" accept="image/*" onChange={handleBgFileChange}
+                className="w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+              />
+
+              {temImagemFundo && (
+                <>
+                  <button
+                    onClick={() => setActiveTool('calibrate')}
+                    className={`w-full p-2 text-sm font-medium border rounded transition ${activeTool === 'calibrate' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                  >
+                    📏 Calibrar Escala da Imagem
+                  </button>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600">Transparência ({Math.round(opacidadeFundo * 100)}%)</label>
+                    <input
+                      type="range" min="0.1" max="1" step="0.1" value={opacidadeFundo}
+                      onChange={(e) => handleBgOpacityChange(Number(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleRemoveBg}
+                    className="w-full p-2 text-sm font-medium border rounded transition bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                  >
+                    ❌ Remover Imagem
+                  </button>
+                </>
+              )}
             </div>
           </div>
 

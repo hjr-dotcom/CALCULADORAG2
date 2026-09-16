@@ -1,8 +1,20 @@
 'use client';
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+
+export interface CanvasDrawHandle {
+  undo: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
+  setBackgroundImage: (file: File) => void;
+  clearBackgroundImage: () => void;
+  setBackgroundOpacity: (v: number) => void;
+}
 
 interface CanvasDrawProps {
-  tool: string;
+  // 'line' desenha paredes; 'select' seleciona; 'pan' arrasta a câmera;
+  // 'calibrate' mede uma linha sobre a imagem de fundo e pede o tamanho real.
+  tool: 'line' | 'select' | 'pan' | 'calibrate' | string;
   orthoEnabled: boolean;
   onUpdateGeometry: (linesData: any[], modData: { modLines: any[]; modPoints: any[]; perimetro: number; areaEst: number; boundW: number; boundH: number }) => void;
   canvasRefProp?: React.RefObject<HTMLCanvasElement | null>;
@@ -12,7 +24,10 @@ interface CanvasDrawProps {
   gridMode?: 'drywall' | 'modular';
 }
 
-export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canvasRefProp, gridMode = 'drywall' }: CanvasDrawProps) {
+const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function CanvasDraw(
+  { tool, orthoEnabled, onUpdateGeometry, canvasRefProp, gridMode = 'drywall' },
+  ref
+) {
   const localCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeCanvasRef = canvasRefProp || localCanvasRef;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -26,7 +41,16 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
   const [startY, setStartY] = useState(0);
   const [currentX, setCurrentX] = useState(0);
   const [currentY, setCurrentY] = useState(0);
-  
+
+  // Imagem de fundo (decalque) e calibração de escala
+  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+  const [bgScale, setBgScale] = useState(0.01); // metros por pixel da imagem original
+  const [bgOffset, setBgOffset] = useState({ x: 0, y: 0 }); // posição (m) do canto superior-esquerdo da imagem
+  const [bgOpacity, setBgOpacity] = useState(0.4);
+
+  const historyRef = useRef<any[][]>([]);
+  const panStateRef = useRef({ active: false, lastX: 0, lastY: 0 });
+
   const zoomRef = useRef(45);
   const oxRef = useRef(0);
   const oyRef = useRef(0);
@@ -52,9 +76,18 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
+    // Imagem de fundo (decalque)
+    if (bgImage) {
+      const p1 = w2s(bgOffset.x, bgOffset.y);
+      const p2 = w2s(bgOffset.x + bgImage.width * bgScale, bgOffset.y - bgImage.height * bgScale);
+      ctx.globalAlpha = bgOpacity;
+      ctx.drawImage(bgImage, p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+      ctx.globalAlpha = 1;
+    }
+
     // Grid
-    ctx.strokeStyle = '#c4c4c400'; 
-    ctx.lineWidth = 1; 
+    ctx.strokeStyle = '#c4c4c400';
+    ctx.lineWidth = 1;
     let step = 1 * zoomRef.current;
     ctx.beginPath();
     for (let x = oxRef.current % step; x < w; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
@@ -108,15 +141,17 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
       ctx.fillRect(p2.x - 3, p2.y - 3, 6, 6);
     });
 
-    // Linha ativa ao desenhar
-    if (isDrawing && tool === 'line') {
+    // Linha ativa ao desenhar ou calibrar
+    if (isDrawing && (tool === 'line' || tool === 'calibrate')) {
       let p1 = w2s(startX, startY), p2 = w2s(currentX, currentY);
-      ctx.strokeStyle = '#a3e635'; ctx.lineWidth = 2;
+      ctx.strokeStyle = tool === 'calibrate' ? '#d946ef' : '#a3e635';
+      ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
       ctx.fillStyle = 'white'; ctx.font = '13px monospace';
-      ctx.fillText(Math.hypot(currentX - startX, currentY - startY).toFixed(2) + 'm', p2.x + 12, p2.y - 12);
+      const label = tool === 'calibrate' ? 'Definir escala...' : Math.hypot(currentX - startX, currentY - startY).toFixed(2) + 'm';
+      ctx.fillText(label, p2.x + 12, p2.y - 12);
     }
-  }, [lines, modLines, modPoints, modBounds, gridMode, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef]);
+  }, [lines, modLines, modPoints, modBounds, gridMode, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef, bgImage, bgScale, bgOffset, bgOpacity]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -162,8 +197,17 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
     const my = e.clientY - rect.top;
     mouseRef.current = { x: mx, y: my };
 
+    if (panStateRef.current.active) {
+      oxRef.current += e.clientX - panStateRef.current.lastX;
+      oyRef.current += e.clientY - panStateRef.current.lastY;
+      panStateRef.current.lastX = e.clientX;
+      panStateRef.current.lastY = e.clientY;
+      render();
+      return;
+    }
+
     let snap = getSnap(s2w(mx, my));
-    if (isDrawing && tool === 'line') {
+    if (isDrawing && (tool === 'line' || tool === 'calibrate')) {
       let cX = snap.x;
       let cY = snap.y;
       if (e.shiftKey || orthoEnabled) {
@@ -175,13 +219,45 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
     }
   };
 
+  const finalizarCalibracao = (x1: number, y1: number, x2: number, y2: number) => {
+    if (!bgImage) {
+      alert('Carregue uma imagem de fundo antes de calibrar a escala.');
+      return;
+    }
+    const real = window.prompt('Qual o tamanho real desta linha, em metros?', '1.0');
+    if (real === null) return;
+    const realNum = parseFloat(real.replace(',', '.'));
+    if (!isFinite(realNum) || realNum <= 0) return;
+
+    // Converte os pontos clicados (em metros, no sistema já usado pelas paredes)
+    // para pixels da imagem original, usando a calibração atual (ou o palpite
+    // inicial), e recalcula escala/posição da imagem para que a distância
+    // medida passe a corresponder ao valor real informado.
+    const ip1 = { x: (x1 - bgOffset.x) / bgScale, y: (bgOffset.y - y1) / bgScale };
+    const ip2 = { x: (x2 - bgOffset.x) / bgScale, y: (bgOffset.y - y2) / bgScale };
+    const pixDist = Math.hypot(ip2.x - ip1.x, ip2.y - ip1.y);
+    if (pixDist <= 0) return;
+
+    const newScale = realNum / pixDist;
+    const newOffsetX = x1 - ip1.x * newScale;
+    const newOffsetY = y1 + ip1.y * newScale;
+    setBgScale(newScale);
+    setBgOffset({ x: newOffsetX, y: newOffsetY });
+  };
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = activeCanvasRef.current;
     if (!canvas) return;
+
+    if (tool === 'pan') {
+      panStateRef.current = { active: true, lastX: e.clientX, lastY: e.clientY };
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     let snap = getSnap(s2w(e.clientX - rect.left, e.clientY - rect.top));
 
-    if (tool === 'line') {
+    if (tool === 'line' || tool === 'calibrate') {
       if (!isDrawing) {
         setIsDrawing(true);
         setStartX(snap.x);
@@ -196,14 +272,24 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
           else fX = startX;
         }
         if (Math.hypot(startX - fX, startY - fY) > 0.05) {
-          const updatedLines = [...lines, { x1: startX, y1: startY, x2: fX, y2: fY, selected: false }];
-          setLines(updatedLines);
-          calcularModulacao(updatedLines);
+          if (tool === 'line') {
+            historyRef.current.push(lines);
+            if (historyRef.current.length > 30) historyRef.current.shift();
+            const updatedLines = [...lines, { x1: startX, y1: startY, x2: fX, y2: fY, selected: false }];
+            setLines(updatedLines);
+            calcularModulacao(updatedLines);
+          } else {
+            finalizarCalibracao(startX, startY, fX, fY);
+          }
         }
-        setStartX(fX);
-        setStartY(fY);
-        setCurrentX(fX);
-        setCurrentY(fY);
+        if (tool === 'calibrate') {
+          setIsDrawing(false);
+        } else {
+          setStartX(fX);
+          setStartY(fY);
+          setCurrentX(fX);
+          setCurrentY(fY);
+        }
       }
     } else if (tool === 'select') {
       const wPos = s2w(e.clientX - rect.left, e.clientY - rect.top);
@@ -215,6 +301,10 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
     }
   };
 
+  const handleMouseUp = () => {
+    panStateRef.current.active = false;
+  };
+
   const distToSeg = (p: { x: number; y: number }, v: { x: number; y: number }, w: { x: number; y: number }) => {
     const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
     if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
@@ -223,7 +313,13 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
   };
 
   const calcularModulacao = (currentLines: any[]) => {
-    if (currentLines.length < 3) return;
+    if (currentLines.length < 3) {
+      setModLines([]);
+      setModPoints([]);
+      setModBounds(null);
+      onUpdateGeometry(currentLines, { modLines: [], modPoints: [], perimetro: 0, areaEst: 0, boundW: 0, boundH: 0 });
+      return;
+    }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     currentLines.forEach(l => {
       minX = Math.min(minX, l.x1, l.x2);
@@ -263,6 +359,18 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
     onUpdateGeometry(currentLines, { modLines: mLines, modPoints: mPoints, perimetro, areaEst, boundW: maxX - minX, boundH: maxY - minY });
   };
 
+  const zoomAtCenter = (factor: number) => {
+    const canvas = activeCanvasRef.current;
+    if (!canvas) return;
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    const wpB = s2w(cx, cy);
+    zoomRef.current *= factor;
+    const wpA = s2w(cx, cy);
+    oxRef.current += (wpA.x - wpB.x) * zoomRef.current;
+    oyRef.current -= (wpA.y - wpB.y) * zoomRef.current;
+    render();
+  };
+
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const wpB = s2w(mouseRef.current.x, mouseRef.current.y);
@@ -273,16 +381,58 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
     render();
   };
 
+  useImperativeHandle(ref, () => ({
+    undo: () => {
+      if (historyRef.current.length === 0) return;
+      const prev = historyRef.current.pop()!;
+      setIsDrawing(false);
+      setLines(prev);
+      calcularModulacao(prev);
+    },
+    zoomIn: () => zoomAtCenter(1.25),
+    zoomOut: () => zoomAtCenter(1 / 1.25),
+    resetView: () => {
+      zoomRef.current = 45;
+      const canvas = activeCanvasRef.current;
+      if (canvas) {
+        oxRef.current = canvas.width / 2;
+        oyRef.current = canvas.height / 2;
+      }
+      render();
+    },
+    setBackgroundImage: (file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const defaultScale = 0.01; // palpite inicial: 1px da imagem = 1cm, ajustável ao calibrar
+          setBgImage(img);
+          setBgScale(defaultScale);
+          setBgOffset({ x: -(img.width * defaultScale) / 2, y: (img.height * defaultScale) / 2 });
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    },
+    clearBackgroundImage: () => setBgImage(null),
+    setBackgroundOpacity: (v: number) => setBgOpacity(v)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [render, lines, bgImage, bgScale, bgOffset]);
+
   return (
     <div ref={containerRef} className="w-full h-full bg-[#1e1e1e] relative">
       <canvas
         ref={activeCanvasRef}
         onMouseMove={handleMouseMove}
         onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
         onContextMenu={(e) => { e.preventDefault(); setIsDrawing(false); }}
         onWheel={handleWheel}
-        className="w-full h-full block cursor-crosshair"
+        className={`w-full h-full block ${tool === 'pan' ? 'cursor-grab' : 'cursor-crosshair'}`}
       />
     </div>
   );
-}
+});
+
+export default CanvasDraw;
