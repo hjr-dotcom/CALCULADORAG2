@@ -179,6 +179,16 @@ export default function ModoSimples() {
             ctx.beginPath(); ctx.moveTo(oxS, py); ctx.lineTo(oxS + sl, py); ctx.stroke();
         }
     }
+
+    // Pendural: 1 a cada 1m de perfil principal
+    ctx.fillStyle = '#22c55e';
+    for (let y = 1.25; y < C; y += 1.25) {
+        let py = oyS + y * scale;
+        for (let x = 1; x < L; x += 1.0) {
+            let px = oxS + x * scale;
+            ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+        }
+    }
   };
 
   const desenharForro = (L: number, C: number, linhas: number, pendurais: number) => {

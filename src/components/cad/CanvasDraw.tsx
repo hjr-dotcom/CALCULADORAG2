@@ -40,6 +40,7 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
   const [modLines, setModLines] = useState<any[]>([]);
   const [modPoints, setModPoints] = useState<any[]>([]);
   const [modularGridSegs, setModularGridSegs] = useState<any[]>([]);
+  const [modularPendurais, setModularPendurais] = useState<any[]>([]);
   const [modBounds, setModBounds] = useState<{ minX: number; maxX: number; minY: number; maxY: number } | null>(null);
   const [areaPoligono, setAreaPoligono] = useState(0);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -116,6 +117,13 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
         ctx.lineWidth = seg.kind === 'principal' ? 2 : 1;
         ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
       });
+
+      // Pendurais: 1 a cada 1m de perfil principal
+      ctx.fillStyle = '#22c55e';
+      modularPendurais.forEach(p => {
+        let sp = w2s(p.x, p.y);
+        ctx.beginPath(); ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2); ctx.fill();
+      });
     } else {
       // Linhas de modulação (F530)
       ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5;
@@ -164,7 +172,7 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
       ctx.fillText(`Área: ${areaPoligono.toFixed(2)} m²`, centro.x, centro.y);
       ctx.textAlign = 'left';
     }
-  }, [lines, modLines, modPoints, modularGridSegs, modBounds, areaPoligono, gridMode, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef, bgImage, bgScale, bgOffset, bgOpacity, hoverDeleteIdx]);
+  }, [lines, modLines, modPoints, modularGridSegs, modularPendurais, modBounds, areaPoligono, gridMode, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef, bgImage, bgScale, bgOffset, bgOpacity, hoverDeleteIdx]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -413,6 +421,7 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
       setModLines([]);
       setModPoints([]);
       setModularGridSegs([]);
+      setModularPendurais([]);
       setModBounds(null);
       setAreaPoligono(0);
       onUpdateGeometry(currentLines, { modLines: [], modPoints: [], perimetro: 0, areaEst: 0, areaPoligono: 0, boundW: 0, boundH: 0 });
@@ -445,6 +454,7 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
     // Grade do forro modular recortada nos limites reais do ambiente (não
     // ultrapassa a linha da cantoneira/parede, diferente do retângulo envolvente).
     let gridSegs: any[] = [];
+    let pendurais: any[] = [];
     const passoTravessa = 0.625;
     const passoPrincipal = 1.25;
     for (let x = minX + 1e-4; x <= maxX - 1e-4; x += passoTravessa) {
@@ -452,9 +462,13 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
         gridSegs.push({ x1: x, y1: yA, x2: x, y2: yB, kind: 'travessa' });
       });
     }
+    // Pendural: 1 a cada 1m de perfil principal.
     for (let y = minY + 1e-4; y <= maxY - 1e-4; y += passoPrincipal) {
       scanRowSpans(currentLines, y).forEach(([xA, xB]) => {
         gridSegs.push({ x1: xA, y1: y, x2: xB, y2: y, kind: 'principal' });
+        for (let p = 1; p < (xB - xA); p += 1.0) {
+          pendurais.push({ x: xA + p, y });
+        }
       });
     }
     // Formato 62x62: a chapa 1,25x0,625 é cortada ao meio, então entra uma
@@ -467,6 +481,7 @@ const CanvasDraw = forwardRef<CanvasDrawHandle, CanvasDrawProps>(function Canvas
       }
     }
     setModularGridSegs(gridSegs);
+    setModularPendurais(pendurais);
 
     let perimetro = 0;
     currentLines.forEach(l => perimetro += Math.hypot(l.x2 - l.x1, l.y2 - l.y1));
