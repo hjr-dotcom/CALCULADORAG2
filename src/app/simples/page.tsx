@@ -1,8 +1,8 @@
 'use client';
 import { useState, useRef } from 'react';
-import { usePrices } from '../../usePrices';
-import { calcFixacao, formataMoeda, calcularParedeDrywall, calcularForroModular } from '../../utils';
-import TabelaOrcamento from '../../TabelaOrcamento';
+import { usePrices } from '../../hooks/usePrices';
+import { calcFixacao, formataMoeda, calcularParedeDrywall, calcularForroModular } from '../../lib/utils';
+import TabelaOrcamento from '../../components/TabelaOrcamento';
 
 export default function ModoSimples() {
   const { prices, isLoaded } = usePrices();
