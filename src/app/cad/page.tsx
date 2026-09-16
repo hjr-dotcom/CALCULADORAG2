@@ -112,6 +112,7 @@ export default function CadPage() {
         { nome: prices.perfil_canto_modular.nome, qtd: mat.perfilCanto, un: 'un', pPix: prices.perfil_canto_modular.pix, pCred: prices.perfil_canto_modular.cred },
         { nome: prices.tirante_modular.nome, qtd: mat.pendural, un: 'un', pPix: prices.tirante_modular.pix, pCred: prices.tirante_modular.cred },
         { nome: prices.presilha_modular.nome, qtd: mat.presilha, un: 'un', pPix: prices.presilha_modular.pix, pCred: prices.presilha_modular.cred },
+        { nome: prices.prego_aco.nome, qtd: mat.pregoAco, un: 'un', pPix: prices.prego_aco.pix, pCred: prices.prego_aco.cred },
         { nome: prices.arame.nome, qtd: mat.arame, un: 'm', pPix: prices.arame.pix, pCred: prices.arame.cred }
       ];
     }

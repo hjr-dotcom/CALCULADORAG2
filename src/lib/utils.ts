@@ -55,6 +55,8 @@ export function calcularForroModular(lado1: number, lado2: number, formato: '125
   const travessa625 = travessaBase + travessaExtra;
 
   const perfilCanto = Math.ceil(perimetro / 3);
+  // Prego de aço: fixa o perfil canto na parede, 1 a cada 50cm (6 por barra de 3m)
+  const pregoAco = perfilCanto * 6;
   const perfilPrincipalRaw = (lado1 / 1.25) * (lado2 / 3.125) * 1.05;
   const perfilPrincipal = Math.ceil(perfilPrincipalRaw);
   const perfilSecundario = Math.ceil((lado1 / 1.25) * (lado2 / 0.625) * 1.05);
@@ -62,5 +64,5 @@ export function calcularForroModular(lado1: number, lado2: number, formato: '125
   const presilha = placas * 2;
   const arame = +(pendural * rebaixo * 1.15).toFixed(1);
 
-  return { area, perimetro, placas, travessa625, perfilCanto, perfilPrincipal, perfilSecundario, pendural, presilha, arame };
+  return { area, perimetro, placas, travessa625, perfilCanto, pregoAco, perfilPrincipal, perfilSecundario, pendural, presilha, arame };
 }

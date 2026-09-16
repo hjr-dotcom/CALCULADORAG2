@@ -24,6 +24,8 @@ export const defaultPrices: Record<string, { nome: string; pix: number; cred: nu
     'perfil_canto_modular': { nome: 'Perfil Canto Modular 3m', pix: 8.15, cred: 11.45 },
     'presilha_modular': { nome: 'Presilha Forro Modular (un)', pix: 0.70, cred: 1.00 },
     'tirante_modular': { nome: 'Tirante c/ Regulador Mola (un)', pix: 1.90, cred: 2.70 },
+    // Preço não cadastrado ainda: ajuste manualmente em Configurações.
+    'prego_aco': { nome: 'Prego de Aço (fixação Perfil Canto)', pix: 0, cred: 0 },
 
     // Forro Modular - placas (peça cheia 1,25x0,625m; cortada ao meio quando 62x62)
     'placa_modular_125x62': { nome: 'Placa Modular Padrão/Genérica 1,25x0,625m', pix: 25.00, cred: 35.00 },

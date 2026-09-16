@@ -94,9 +94,10 @@ export default function ModoSimples() {
             { nome: prices.perfil_canto_modular.nome, qtd: mat.perfilCanto, un: 'un', pPix: prices.perfil_canto_modular.pix, pCred: prices.perfil_canto_modular.cred },
             { nome: prices.tirante_modular.nome, qtd: mat.pendural, un: 'un', pPix: prices.tirante_modular.pix, pCred: prices.tirante_modular.cred },
             { nome: prices.presilha_modular.nome, qtd: mat.presilha, un: 'un', pPix: prices.presilha_modular.pix, pCred: prices.presilha_modular.cred },
+            { nome: prices.prego_aco.nome, qtd: mat.pregoAco, un: 'un', pPix: prices.prego_aco.pix, pCred: prices.prego_aco.cred },
             { nome: prices.arame.nome, qtd: mat.arame, un: 'm', pPix: prices.arame.pix, pCred: prices.arame.cred }
         ];
-        limparDesenho();
+        desenharForroModular(L, C, formatoModular);
     }
 
     if (usarLa) {
@@ -113,8 +114,37 @@ export default function ModoSimples() {
     ctx.clearRect(0,0, c.width, c.height);
     ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, c.width, c.height);
     ctx.fillStyle = '#64748b'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('Esquema visual disponível apenas para Forro Drywall.', c.width/2, c.height/2);
+    ctx.fillText('Esquema visual não disponível para Parede Drywall.', c.width/2, c.height/2);
   }
+
+  // Grade esquemática do forro modular: perfil principal a cada 1,25m (laranja) e
+  // travessa/perfil secundário a cada 0,625m (azul), dentro do retângulo do ambiente.
+  const desenharForroModular = (L: number, C: number, formato: '125x62' | '62x62') => {
+    const c = canvasRef.current; if (!c) return;
+    const ctx = c.getContext('2d'); if (!ctx) return;
+
+    ctx.clearRect(0,0, c.width, c.height);
+    const margin = 20;
+    const scale = Math.min((c.width - margin*2)/L, (c.height - margin*2)/C);
+    const sl = L * scale, sc = C * scale;
+    const oxS = (c.width - sl)/2, oyS = (c.height - sc)/2;
+
+    ctx.fillStyle = '#f1f5f9'; ctx.fillRect(oxS, oyS, sl, sc);
+    ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 3; ctx.strokeRect(oxS, oyS, sl, sc);
+
+    const passoTravessa = formato === '62x62' ? 0.3125 : 0.625;
+    ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1;
+    for (let x = passoTravessa; x < L; x += passoTravessa) {
+        let px = oxS + x * scale;
+        ctx.beginPath(); ctx.moveTo(px, oyS); ctx.lineTo(px, oyS + sc); ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+    for (let y = 1.25; y < C; y += 1.25) {
+        let py = oyS + y * scale;
+        ctx.beginPath(); ctx.moveTo(oxS, py); ctx.lineTo(oxS + sl, py); ctx.stroke();
+    }
+  };
 
   const desenharForro = (L: number, C: number, linhas: number, pendurais: number) => {
     const c = canvasRef.current; if (!c) return;
@@ -147,7 +177,7 @@ export default function ModoSimples() {
     if (orcamento.length === 0) return alert("Gere um orçamento primeiro.");
 
     let imagemUrl = '';
-    if (incluirDesenho && canvasRef.current && tipoEstrutura === 'forro_drywall') {
+    if (incluirDesenho && canvasRef.current && tipoEstrutura !== 'parede_drywall') {
       imagemUrl = canvasRef.current.toDataURL('image/png');
     }
 
