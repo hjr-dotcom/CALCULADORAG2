@@ -1,15 +1,25 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { usePrices } from '../../hooks/usePrices';
 import { calcFixacao, formataMoeda, calcularParedeDrywall, calcularForroModular } from '../../lib/utils';
+import { MODULAR_PLACA_KEYS } from '../../lib/defaultPrices';
 import TabelaOrcamento from '../../components/TabelaOrcamento';
 
 export default function ModoSimples() {
   const { prices, isLoaded } = usePrices();
-  
+
   // Novos estados para o tipo de estrutura
   const [tipoEstrutura, setTipoEstrutura] = useState<'forro_drywall' | 'parede_drywall' | 'forro_modular'>('forro_drywall');
   const [formatoModular, setFormatoModular] = useState<'125x62' | '62x62'>('125x62');
+  const [materialModular, setMaterialModular] = useState('placa_modular_125x62');
+
+  // Pré-seleciona o tipo de estrutura vindo do menu inicial (ex: /simples?tipo=forro_modular)
+  useEffect(() => {
+    const tipo = new URLSearchParams(window.location.search).get('tipo');
+    if (tipo === 'forro_drywall' || tipo === 'parede_drywall' || tipo === 'forro_modular') {
+      setTipoEstrutura(tipo);
+    }
+  }, []);
 
   const [largura, setLargura] = useState(4.0);
   const [comprimento, setComprimento] = useState(5.0);
@@ -69,21 +79,23 @@ export default function ModoSimples() {
         limparDesenho();
     }
     else if (tipoEstrutura === 'forro_modular') {
-        const mat = calcularForroModular(area, perimetro, formatoModular);
-        const placaKey = formatoModular === '125x62' ? 'placa_modular_125x62' : 'placa_modular_62x62';
-        
+        const mat = calcularForroModular(L, C, formatoModular, R);
+
+        // Placas sempre são fabricadas/vendidas na chapa cheia 1,25x0,625m; no formato
+        // 62x62 cada chapa é cortada ao meio, então o preço por peça instalada é a metade.
+        const placaMat = prices[materialModular];
+        const fatorCorte = formatoModular === '62x62' ? 0.5 : 1;
+
         novoOrcamento = [
-            { nome: prices[placaKey].nome, qtd: mat.placas, un: 'un', pPix: prices[placaKey].pix, pCred: prices[placaKey].cred },
-            { nome: prices.perfil_principal_3125.nome, qtd: mat.perfilPrincipal_312, un: 'un', pPix: prices.perfil_principal_3125.pix, pCred: prices.perfil_principal_3125.cred },
-            { nome: prices.perfil_travessa_1250.nome, qtd: mat.perfilTravessa_125, un: 'un', pPix: prices.perfil_travessa_1250.pix, pCred: prices.perfil_travessa_1250.cred }
+            { nome: `${placaMat.nome}${formatoModular === '62x62' ? ' (cortada 0,625x0,625m)' : ''}`, qtd: mat.placas, un: 'un', pPix: placaMat.pix * fatorCorte, pCred: placaMat.cred * fatorCorte },
+            { nome: prices.perfil_principal_3125.nome, qtd: mat.perfilPrincipal, un: 'un', pPix: prices.perfil_principal_3125.pix, pCred: prices.perfil_principal_3125.cred },
+            { nome: prices.perfil_secundario_0625.nome, qtd: mat.perfilSecundario, un: 'un', pPix: prices.perfil_secundario_0625.pix, pCred: prices.perfil_secundario_0625.cred },
+            { nome: prices.perfil_travessa_625.nome, qtd: mat.travessa625, un: 'un', pPix: prices.perfil_travessa_625.pix, pCred: prices.perfil_travessa_625.cred },
+            { nome: prices.perfil_canto_modular.nome, qtd: mat.perfilCanto, un: 'un', pPix: prices.perfil_canto_modular.pix, pCred: prices.perfil_canto_modular.cred },
+            { nome: prices.tirante_modular.nome, qtd: mat.pendural, un: 'un', pPix: prices.tirante_modular.pix, pCred: prices.tirante_modular.cred },
+            { nome: prices.presilha_modular.nome, qtd: mat.presilha, un: 'un', pPix: prices.presilha_modular.pix, pCred: prices.presilha_modular.cred },
+            { nome: prices.arame.nome, qtd: mat.arame, un: 'm', pPix: prices.arame.pix, pCred: prices.arame.cred }
         ];
-
-        if (mat.perfilTravessa_062 > 0) {
-            novoOrcamento.push({ nome: prices.perfil_travessa_625.nome, qtd: mat.perfilTravessa_062, un: 'un', pPix: prices.perfil_travessa_625.pix, pCred: prices.perfil_travessa_625.cred });
-        }
-
-        novoOrcamento.push({ nome: prices.cantoneira.nome, qtd: mat.cantoneira_3m, un: 'un', pPix: prices.cantoneira.pix, pCred: prices.cantoneira.cred });
-        novoOrcamento.push({ nome: prices.tirante_modular.nome, qtd: mat.tirantes, un: 'un', pPix: prices.tirante_modular.pix, pCred: prices.tirante_modular.cred });
         limparDesenho();
     }
 
@@ -141,7 +153,7 @@ export default function ModoSimples() {
 
     let titulo = `Orçamento - G2 Acústica e Térmica`;
     let subTitulo = tipoPgt === 'PIX' ? 'Pagamento via PIX' : 'Crédito em até 6x';
-    let nomeEstrutura = tipoEstrutura === 'forro_drywall' ? 'Forro Drywall' : tipoEstrutura === 'parede_drywall' ? 'Parede Drywall' : 'Forro Modular';
+    let nomeEstrutura = tipoEstrutura === 'forro_drywall' ? 'Forro Acartonado' : tipoEstrutura === 'parede_drywall' ? 'Parede Drywall' : `Forro Removível / Modular (${prices[materialModular]?.nome ?? ''}, ${formatoModular === '62x62' ? '0,625x0,625m' : '1,25x0,625m'})`;
     let dimensoes = tipoEstrutura === 'parede_drywall' ? `${largura}m (Largura) x ${comprimento}m (Altura)` : `${largura}m x ${comprimento}m`;
 
     let linhasHTML = '';
@@ -254,25 +266,39 @@ export default function ModoSimples() {
                     onChange={e => setTipoEstrutura(e.target.value as any)}
                     className="w-full border border-slate-300 rounded p-2 text-sm bg-white font-medium text-slate-900"
                 >
-                    <option value="forro_drywall">Forro Drywall (F530)</option>
+                    <option value="forro_drywall">Forro Acartonado (F530)</option>
                     <option value="parede_drywall">Parede Drywall (Montante 90)</option>
-                    <option value="forro_modular">Forro Modular</option>
+                    <option value="forro_modular">Forro Removível / Modular</option>
                 </select>
             </div>
 
             {/* SELETOR DE PLACA SE FOR MODULAR */}
             {tipoEstrutura === 'forro_modular' && (
-                <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Formato das Placas</label>
-                    <select 
-                        value={formatoModular} 
-                        onChange={e => setFormatoModular(e.target.value as any)}
-                        className="w-full border border-slate-300 rounded p-2 text-sm bg-white text-slate-900"
-                    >
-                        <option value="125x62">1,25m x 0,62m</option>
-                        <option value="62x62">0,62m x 0,62m</option>
-                    </select>
-                </div>
+                <>
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1">Formato das Placas</label>
+                        <select
+                            value={formatoModular}
+                            onChange={e => setFormatoModular(e.target.value as any)}
+                            className="w-full border border-slate-300 rounded p-2 text-sm bg-white text-slate-900"
+                        >
+                            <option value="125x62">Retangular 1,25m x 0,625m</option>
+                            <option value="62x62">Quadrada 0,625m x 0,625m (cortada)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1">Material da Placa</label>
+                        <select
+                            value={materialModular}
+                            onChange={e => setMaterialModular(e.target.value)}
+                            className="w-full border border-slate-300 rounded p-2 text-sm bg-white text-slate-900"
+                        >
+                            {MODULAR_PLACA_KEYS.map(key => (
+                                <option key={key} value={key}>{prices[key]?.nome ?? key}</option>
+                            ))}
+                        </select>
+                    </div>
+                </>
             )}
 
             <hr className="border-slate-200 my-2" />

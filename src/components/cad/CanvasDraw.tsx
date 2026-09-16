@@ -4,11 +4,15 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 interface CanvasDrawProps {
   tool: string;
   orthoEnabled: boolean;
-  onUpdateGeometry: (linesData: any[], modData: { modLines: any[]; modPoints: any[]; perimetro: number; areaEst: number }) => void;
+  onUpdateGeometry: (linesData: any[], modData: { modLines: any[]; modPoints: any[]; perimetro: number; areaEst: number; boundW: number; boundH: number }) => void;
   canvasRefProp?: React.RefObject<HTMLCanvasElement | null>;
+  // 'drywall' desenha a modulação F530 (padrão); 'modular' desenha uma grade
+  // esquemática de forro modular (perfil principal a cada 1,25m e travessas a
+  // cada 0,625m) dentro do retângulo envolvente do desenho.
+  gridMode?: 'drywall' | 'modular';
 }
 
-export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canvasRefProp }: CanvasDrawProps) {
+export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canvasRefProp, gridMode = 'drywall' }: CanvasDrawProps) {
   const localCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeCanvasRef = canvasRefProp || localCanvasRef;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -16,6 +20,7 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
   const [lines, setLines] = useState<any[]>([]);
   const [modLines, setModLines] = useState<any[]>([]);
   const [modPoints, setModPoints] = useState<any[]>([]);
+  const [modBounds, setModBounds] = useState<{ minX: number; maxX: number; minY: number; maxY: number } | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startX, setStartX] = useState(0);
   const [startY, setStartY] = useState(0);
@@ -62,19 +67,35 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
     ctx.beginPath(); ctx.moveTo(org.x - 10, org.y); ctx.lineTo(org.x + 10, org.y); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(org.x, org.y - 10); ctx.lineTo(org.x, org.y + 10); ctx.stroke();
 
-    // Linhas de modulação (F530)
-    ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5;
-    modLines.forEach(l => {
-      let p1 = w2s(l.x1, l.y1), p2 = w2s(l.x2, l.y2);
-      ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-    });
+    if (gridMode === 'modular' && modBounds) {
+      // Grade esquemática do forro modular: travessas a cada 0,625m e
+      // perfil principal a cada 1,25m, dentro do retângulo envolvente do desenho.
+      const { minX, maxX, minY, maxY } = modBounds;
+      ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1;
+      for (let x = minX; x <= maxX + 0.001; x += 0.625) {
+        let p1 = w2s(x, minY), p2 = w2s(x, maxY);
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      }
+      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+      for (let y = minY; y <= maxY + 0.001; y += 1.25) {
+        let p1 = w2s(minX, y), p2 = w2s(maxX, y);
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      }
+    } else {
+      // Linhas de modulação (F530)
+      ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5;
+      modLines.forEach(l => {
+        let p1 = w2s(l.x1, l.y1), p2 = w2s(l.x2, l.y2);
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      });
 
-    // Pontos de modulação (Pendurais)
-    ctx.fillStyle = '#22c55e';
-    modPoints.forEach(p => {
-      let sp = w2s(p.x, p.y);
-      ctx.beginPath(); ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2); ctx.fill();
-    });
+      // Pontos de modulação (Pendurais)
+      ctx.fillStyle = '#22c55e';
+      modPoints.forEach(p => {
+        let sp = w2s(p.x, p.y);
+        ctx.beginPath(); ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2); ctx.fill();
+      });
+    }
 
     // Paredes desenhadas
     ctx.lineWidth = 2.5;
@@ -95,7 +116,7 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
       ctx.fillStyle = 'white'; ctx.font = '13px monospace';
       ctx.fillText(Math.hypot(currentX - startX, currentY - startY).toFixed(2) + 'm', p2.x + 12, p2.y - 12);
     }
-  }, [lines, modLines, modPoints, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef]);
+  }, [lines, modLines, modPoints, modBounds, gridMode, isDrawing, tool, startX, startY, currentX, currentY, w2s, activeCanvasRef]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -203,11 +224,14 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
 
   const calcularModulacao = (currentLines: any[]) => {
     if (currentLines.length < 3) return;
-    let minY = Infinity, maxY = -Infinity;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     currentLines.forEach(l => {
+      minX = Math.min(minX, l.x1, l.x2);
+      maxX = Math.max(maxX, l.x1, l.x2);
       minY = Math.min(minY, l.y1, l.y2);
       maxY = Math.max(maxY, l.y1, l.y2);
     });
+    setModBounds({ minX, maxX, minY, maxY });
 
     let mLines: any[] = [];
     let mPoints: any[] = [];
@@ -236,7 +260,7 @@ export default function CanvasDraw({ tool, orthoEnabled, onUpdateGeometry, canva
 
     setModLines(mLines);
     setModPoints(mPoints);
-    onUpdateGeometry(currentLines, { modLines: mLines, modPoints: mPoints, perimetro, areaEst });
+    onUpdateGeometry(currentLines, { modLines: mLines, modPoints: mPoints, perimetro, areaEst, boundW: maxX - minX, boundH: maxY - minY });
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
