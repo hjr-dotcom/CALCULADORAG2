@@ -6,6 +6,7 @@ export default function Header() {
       <Link href="/" className="py-3 text-sm font-medium text-slate-600 hover:text-blue-600">🏠 Início</Link>
       <Link href="/cad" className="py-3 text-sm font-medium text-slate-600 hover:text-blue-600">✏️ Desenho Livre (CAD)</Link>
       <Link href="/simples" className="py-3 text-sm font-medium text-slate-600 hover:text-blue-600">📐 Modo Simples</Link>
+      <Link href="/formas-3d" className="py-3 text-sm font-medium text-slate-600 hover:text-blue-600">🧩 Formas 3D</Link>
       <Link href="/configuracoes" className="py-3 text-sm font-medium text-slate-600 hover:text-blue-600 ml-auto">⚙️ Configurações</Link>
     </header>
   );
